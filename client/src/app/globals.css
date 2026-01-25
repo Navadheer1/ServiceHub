@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+:root {
+  /* Brand Colors */
+  --primary: #0f766e; /* Teal 700 */
+  --primary-light: #14b8a6; /* Teal 500 */
+  --primary-dark: #0f172a; /* Slate 900 */
+  
+  --secondary: #f8fafc; /* Slate 50 */
+  --accent: #f97316; /* Orange 500 */
+  --emergency: #ef4444; /* Red 500 */
+  --success: #22c55e; /* Green 500 */
+  
+  /* Backgrounds */
+  --background: #ffffff;
+  --surface: #ffffff;
+  --surface-alt: #f1f5f9; /* Slate 100 */
+
+  /* Text */
+  --foreground: #1e293b; /* Slate 800 */
+  --text-muted: #64748b; /* Slate 500 */
+}
+
+@theme inline {
+  --color-primary: var(--primary);
+  --color-primary-light: var(--primary-light);
+  --color-primary-dark: var(--primary-dark);
+  --color-secondary: var(--secondary);
+  --color-accent: var(--accent);
+  --color-emergency: var(--emergency);
+  --color-success: var(--success);
+  
+  --color-background: var(--background);
+  --color-surface: var(--surface);
+  --color-surface-alt: var(--surface-alt);
+  
+  --color-foreground: var(--foreground);
+  --color-text-muted: var(--text-muted);
+
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+@media (prefers-color-scheme: dark) {
+  /* Optional: Dark mode support overrides if requested later, keeping light for now as default "clean" look */
+  /* :root {
+    --background: #0f172a;
+    --foreground: #f8fafc;
+  } */
+}
+
+body {
+  background-color: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans), sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Smooth Transitions */
+* {
+  transition-property: color, background-color, border-color, text-decoration-color, fill, stroke, opacity, box-shadow, transform, filter, backdrop-filter;
+  transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+  transition-duration: 200ms;
+}
+
+/* Force input colors to ensure visibility */
+input, select, textarea {
+  color: #1e293b !important;
+  background-color: #ffffff !important;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+}
+
+input:focus, select:focus, textarea:focus {
+  outline: 2px solid var(--primary);
+  border-color: transparent;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
