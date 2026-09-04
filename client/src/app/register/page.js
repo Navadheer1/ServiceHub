@@ -14,12 +14,14 @@ export default function RegisterPage() {
     skills: '', // For agents
     experience: '', // For agents
     role: 'user',
+    isEmergencyAvailable: false, // For agents
   });
   const [error, setError] = useState('');
   const { register } = useAuth();
 
   const handleChange = (e) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setFormData({ ...formData, [e.target.name]: value });
   };
 
   const handleSubmit = async (e) => {
@@ -28,10 +30,17 @@ export default function RegisterPage() {
 
     // Basic validation/transformation
     const data = { ...formData };
-    if (data.role === 'agent') {
+    const isAgent = ['Electrician', 'Mechanic'].includes(data.role);
+
+    if (isAgent) {
         if (data.skills) {
              data.skills = data.skills.split(',').map(s => s.trim());
         }
+        // Set serviceType for backend (Keep Title Case for backend logic compatibility)
+        data.serviceType = data.role;
+        
+        // Normalize role to lowercase for AuthContext routing and consistency
+        data.role = data.role.toLowerCase();
     }
 
     const res = await register(data, data.role);
@@ -39,6 +48,8 @@ export default function RegisterPage() {
       setError(res.message);
     }
   };
+
+  const isAgent = ['Electrician', 'Mechanic'].includes(formData.role);
 
   return (
     <div className="flex min-h-screen items-center justify-center bg-gray-100 py-12">
@@ -57,7 +68,8 @@ export default function RegisterPage() {
               className="mt-1 block w-full rounded-md border border-gray-300 bg-white p-2 text-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="user">User</option>
-              <option value="agent">Service Agent</option>
+              <option value="Electrician">Electrician</option>
+              <option value="Mechanic">Mechanic</option>
             </select>
           </div>
           <div>
@@ -105,7 +117,7 @@ export default function RegisterPage() {
             />
           </div>
 
-          {formData.role === 'user' && (
+          {!isAgent && (
             <div>
               <label className="block text-sm font-medium text-gray-700">Address</label>
               <input
@@ -118,20 +130,8 @@ export default function RegisterPage() {
             </div>
           )}
 
-          {formData.role === 'agent' && (
+          {isAgent && (
             <>
-              <div>
-                <label className="block text-sm font-medium text-gray-700">Specialization</label>
-                <select
-                  name="specialization"
-                  value={formData.specialization}
-                  onChange={handleChange}
-                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white p-2 text-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
-                >
-                  <option value="Electrician">Electrician</option>
-                  <option value="Mechanic">Mechanic</option>
-                </select>
-              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700">Experience (Years)</label>
                 <input
@@ -152,6 +152,19 @@ export default function RegisterPage() {
                   placeholder="Mobile, Laptop, TV"
                   className="mt-1 block w-full rounded-md border border-gray-300 bg-white p-2 text-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
+              </div>
+              <div className="flex items-center">
+                <input
+                  id="isEmergencyAvailable"
+                  name="isEmergencyAvailable"
+                  type="checkbox"
+                  checked={formData.isEmergencyAvailable}
+                  onChange={handleChange}
+                  className="h-4 w-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                <label htmlFor="isEmergencyAvailable" className="ml-2 block text-sm text-gray-900">
+                  Available for Emergency Services?
+                </label>
               </div>
             </>
           )}

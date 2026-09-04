@@ -1,6 +1,6 @@
 import ServiceRequest from '../models/ServiceRequest.js';
 import Agent from '../models/Agent.js';
-import { io } from '../index.js';
+// import { io } from '../index.js'; // Removed to avoid circular dependency
 
 // @desc    Create a new service request
 // @route   POST /api/requests
@@ -16,7 +16,9 @@ const createRequest = async (req, res) => {
       scheduledTime,
       media,
       bookingMode,
-      vehicleDetails
+      vehicleDetails,
+      agentType,
+      isEmergency
     } = req.body;
 
     // Simple pricing logic
@@ -29,7 +31,7 @@ const createRequest = async (req, res) => {
         finalAmount: 0
     };
 
-    if (bookingMode === 'Emergency') {
+    if (bookingMode === 'Emergency' || isEmergency) {
         pricing.emergencySurcharge = 300;
         pricing.minEstimate += 300;
         pricing.maxEstimate += 300;
@@ -44,7 +46,9 @@ const createRequest = async (req, res) => {
       address,
       scheduledTime,
       media,
-      bookingMode,
+      bookingMode: bookingMode || (isEmergency ? 'Emergency' : 'Scheduled'),
+      isEmergency: isEmergency || bookingMode === 'Emergency',
+      agentType: agentType || (category === 'Mechanic' ? 'Mechanic' : 'Electrician'),
       vehicleDetails,
       pricing
     });
@@ -52,8 +56,10 @@ const createRequest = async (req, res) => {
     const createdRequest = await request.save();
 
     // Emit event to nearby agents (broadcasting to all 'agents' room for simplicity now)
-    // In production, you'd filter by location here or let agents filter
-    io.to('agents').emit('new_request', createdRequest);
+    const io = req.app.get('io');
+    if (io) {
+        io.to('agents').emit('new_request', createdRequest);
+    }
 
     res.status(201).json(createdRequest);
   } catch (error) {
@@ -134,11 +140,14 @@ const acceptRequest = async (req, res) => {
     await request.save();
 
     // Notify user
-    io.to(request.user.toString()).emit('request_status', { 
-      requestId: request._id, 
-      status: 'Accepted', 
-      agent: req.user 
-    });
+    const io = req.app.get('io');
+    if (io) {
+      io.to(request.user.toString()).emit('request_status', { 
+        requestId: request._id, 
+        status: 'Accepted', 
+        agent: req.user 
+      });
+    }
 
     res.json(request);
   } catch (error) {
@@ -219,33 +228,32 @@ const updateStatus = async (req, res) => {
         }
       }
       
-      try {
-          const agent = await Agent.findById(req.user._id);
-          if (agent) {
-            const amount = request.pricing?.finalAmount || 0;
-            console.log('Updating agent earnings:', { agentId: agent._id, current: agent.earnings, add: amount });
-            agent.earnings = (agent.earnings || 0) + amount;
-            await agent.save();
-          } else {
-              console.log('Agent not found for earnings update:', req.user._id);
-          }
-      } catch (agentError) {
-          console.error('Error updating agent earnings:', agentError);
-          // Don't block request update if agent update fails, or maybe we should?
-          // For now log it.
+      // Auto-expire chat logic
+      const ChatRoom = (await import('../models/ChatRoom.js')).default;
+      const chatRoom = await ChatRoom.findOne({ bookingId: request._id });
+      if (chatRoom) {
+          chatRoom.chatStatus = 'CLOSED';
+          chatRoom.closedAt = new Date();
+          await chatRoom.save();
+          console.log(`Chat room ${chatRoom._id} closed due to job completion`);
       }
     }
 
     await request.save();
     console.log('Request saved successfully');
 
-    // Notify user
-    io.to(request.user.toString()).emit('request_status', { 
-      requestId: request._id, 
-      status,
-      pricing: request.pricing,
-      warranty: request.warranty
-    });
+    // Notify user with socket event including pricing for instant bill sync
+    const io = req.app.get('io');
+    if (io) {
+      io.to(request.user.toString()).emit('request_status', { 
+        requestId: request._id, 
+        status,
+        agent: req.user,
+        pricing: request.pricing,
+        warranty: request.warranty,
+        invoiceReady: status === 'Completed'
+      });
+    }
 
     res.json(request);
   } catch (error) {
@@ -254,4 +262,194 @@ const updateStatus = async (req, res) => {
   }
 };
 
-export { createRequest, getRequestFeed, getUserRequests, getAgentJobs, acceptRequest, updateStatus };
+// @desc    Generate Invoice
+// @route   POST /api/requests/:id/invoice
+// @access  Private (Agent)
+const generateInvoice = async (req, res) => {
+  try {
+    const { laborCharge, partsCharge, warrantyDays, notes } = req.body;
+    
+    const request = await ServiceRequest.findById(req.params.id);
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    // Auth check
+    if (request.agent.toString() !== req.user._id.toString()) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    const labor = Number(laborCharge) || 0;
+    const parts = Number(partsCharge) || 0;
+    const emergency = Number(request.pricing?.emergencySurcharge) || 0;
+    const total = labor + parts + emergency;
+
+    // Update pricing
+    request.pricing = {
+      ...request.pricing?.toObject(),
+      laborCharge: labor,
+      partsCharge: parts,
+      finalAmount: total
+    };
+
+    // Update warranty
+    if (warrantyDays) {
+      const expiryDate = new Date();
+      expiryDate.setDate(expiryDate.getDate() + Number(warrantyDays));
+      request.warranty = {
+        periodDays: Number(warrantyDays),
+        expiryDate
+      };
+    }
+
+    // Update notes
+    if (notes) request.notes = notes;
+
+    // Set Invoice Status
+    request.invoiceStatus = 'GENERATED';
+    request.paymentStatus = 'PENDING';
+    
+    // Ensure job is NOT completed yet
+    if (request.status === 'Completed') {
+        request.status = 'InProgress'; // Revert if accidentally completed
+    }
+
+    await request.save();
+
+    // Notify User
+    const io = req.app.get('io');
+    if (io) {
+      io.to(request.user.toString()).emit('invoice_generated', {
+        requestId: request._id,
+        invoice: {
+          pricing: request.pricing,
+          warranty: request.warranty,
+          notes: request.notes,
+          invoiceStatus: 'GENERATED',
+          paymentStatus: 'PENDING'
+        }
+      });
+    }
+
+    res.json(request);
+  } catch (error) {
+    console.error('Generate Invoice Error:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Confirm Payment (Cash/Online)
+// @route   POST /api/requests/:id/payment
+// @access  Private (Agent/User - depending on mode)
+const confirmPayment = async (req, res) => {
+  try {
+    const { paymentMode } = req.body; // 'CASH' or 'ONLINE'
+    const request = await ServiceRequest.findById(req.params.id);
+
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    // If Cash, only Agent can confirm
+    if (paymentMode === 'CASH') {
+        const isAgent = ['agent', 'electrician', 'mechanic'].includes(req.user.role);
+        if (!isAgent || request.agent.toString() !== req.user._id.toString()) {
+            return res.status(401).json({ message: 'Only assigned agent can confirm cash payment' });
+        }
+    }
+
+    // If Online, User initiates (but usually this is a webhook from PG, simulating for now)
+    // For now, assuming this endpoint is called after successful PG transaction
+    if (paymentMode === 'ONLINE') {
+        // In a real app, you'd verify signature/webhook
+    }
+
+    // Only update earnings if not already paid
+    if (request.paymentStatus !== 'PAID') {
+        // Update Agent Earnings
+        try {
+            const agent = await Agent.findById(request.agent);
+            if (agent) {
+                agent.earnings = (agent.earnings || 0) + (request.pricing.finalAmount || 0);
+                await agent.save();
+                console.log(`Agent ${agent._id} earnings updated: +${request.pricing.finalAmount}`);
+            }
+        } catch (err) {
+            console.error('Error updating agent earnings:', err);
+        }
+    }
+
+    request.paymentStatus = 'PAID';
+    request.paymentMode = paymentMode;
+    request.invoiceStatus = 'PAID';
+    request.status = 'Completed';
+
+    await request.save();
+
+    // Notify both parties
+    const eventData = {
+        requestId: request._id,
+        status: 'Completed',
+        paymentStatus: 'PAID',
+        paymentMode
+    };
+
+    const io = req.app.get('io');
+    if (io) {
+      io.to(request.user.toString()).emit('payment_completed', eventData);
+      io.to(request.agent.toString()).emit('payment_completed', eventData); // Notify agent too if they are listening
+    }
+
+    res.json(request);
+  } catch (error) {
+    console.error('Payment Confirmation Error:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+// @desc    Select Payment Mode (User)
+// @route   POST /api/requests/:id/payment-mode
+// @access  Private (User)
+const selectPaymentMode = async (req, res) => {
+  try {
+    const { paymentMode } = req.body; // 'CASH' or 'ONLINE'
+    const request = await ServiceRequest.findById(req.params.id);
+
+    if (!request) {
+      return res.status(404).json({ message: 'Request not found' });
+    }
+
+    if (request.user.toString() !== req.user._id.toString()) {
+      return res.status(401).json({ message: 'Not authorized' });
+    }
+
+    request.paymentMode = paymentMode;
+    await request.save();
+
+    // Notify Agent
+    const io = req.app.get('io');
+    if (io) {
+      io.to(request.agent.toString()).emit('payment_mode_selected', {
+        requestId: request._id,
+        paymentMode
+      });
+    }
+
+    res.json(request);
+  } catch (error) {
+    console.error('Select Payment Mode Error:', error);
+    res.status(500).json({ message: error.message });
+  }
+};
+
+export { 
+    createRequest, 
+    getRequestFeed, 
+    getUserRequests, 
+    getAgentJobs, 
+    acceptRequest, 
+    updateStatus, 
+    generateInvoice, 
+    confirmPayment,
+    selectPaymentMode
+};

@@ -11,7 +11,7 @@ import {
   MapPin, 
   Phone, 
   Navigation, 
-  DollarSign, 
+  IndianRupee, 
   Shield, 
   FileText, 
   X,
@@ -19,15 +19,21 @@ import {
   LogOut,
   TrendingUp,
   Star,
-  Activity
+  Activity,
+  MessageSquare
 } from 'lucide-react';
+import ChatWindow from '../../../components/ChatWindow';
+
+import { useRouter } from 'next/navigation';
 
 export default function AgentDashboard() {
   const { user, logout } = useAuth();
+  const router = useRouter();
   const [feed, setFeed] = useState([]);
   const [myJobs, setMyJobs] = useState([]);
   const [activeTab, setActiveTab] = useState('feed');
   const [socket, setSocket] = useState(null);
+  const [activeChatBookingId, setActiveChatBookingId] = useState(null);
 
   // Completion Modal State
   const [completionModalOpen, setCompletionModalOpen] = useState(false);
@@ -53,26 +59,28 @@ export default function AgentDashboard() {
       e.preventDefault();
       try {
           const payload = {
-              status: 'Completed',
-              pricing: {
-                  laborCharge: Number(completionData.laborCharge),
-                  partsCharge: Number(completionData.partsCharge)
-              },
-              warranty: {
-                  periodDays: Number(completionData.warrantyDays),
-                  expiryDate: new Date(Date.now() + Number(completionData.warrantyDays) * 24 * 60 * 60 * 1000)
-              },
-              completionDetails: {
-                  notes: completionData.notes
-              }
+              laborCharge: Number(completionData.laborCharge),
+              partsCharge: Number(completionData.partsCharge),
+              warrantyDays: Number(completionData.warrantyDays),
+              notes: completionData.notes
           };
           
-          const { data } = await api.put(`/requests/${selectedJobId}/status`, payload);
+          const { data } = await api.post(`/requests/${selectedJobId}/invoice`, payload);
           setMyJobs(myJobs.map((job) => (job._id === selectedJobId ? data : job)));
           setCompletionModalOpen(false);
       } catch (error) {
           console.error(error);
-          alert('Error completing job');
+          alert('Error generating invoice');
+      }
+  };
+
+  const handlePaymentConfirm = async (id) => {
+      try {
+          const { data } = await api.post(`/requests/${id}/payment`, { paymentMode: 'CASH' });
+          setMyJobs(myJobs.map((job) => (job._id === id ? data : job)));
+      } catch (error) {
+          console.error(error);
+          alert('Error confirming payment');
       }
   };
 
@@ -161,6 +169,15 @@ export default function AgentDashboard() {
                 Online
               </div>
             </div>
+            
+            <button
+              onClick={() => router.push('/profile')}
+              className="group flex items-center justify-center rounded-full bg-gray-100 p-2 text-gray-600 transition-all hover:bg-blue-50 hover:text-blue-600"
+              title="Profile"
+            >
+                <User className="h-5 w-5" />
+            </button>
+
             <button
               onClick={logout}
               className="group flex items-center justify-center rounded-full bg-gray-100 p-2 text-gray-600 transition-all hover:bg-red-50 hover:text-red-600"
@@ -340,14 +357,42 @@ export default function AgentDashboard() {
                               <Briefcase className="h-5 w-5" /> Start Work
                             </button>
                           )}
-                          {job.status === 'InProgress' && (
+                          {job.status === 'InProgress' && (!job.invoiceStatus || job.invoiceStatus === 'NOT_GENERATED') && (
                             <button
                               onClick={() => openCompletionModal(job._id)}
                               className="flex items-center justify-center gap-2 rounded-xl bg-green-600 py-3 font-bold text-white shadow-lg shadow-green-600/20 transition-all hover:bg-green-700"
                             >
-                              <CheckCircle className="h-5 w-5" /> Complete Job
+                              <CheckCircle className="h-5 w-5" /> Generate Invoice
                             </button>
                           )}
+
+                          {job.invoiceStatus === 'GENERATED' && job.paymentStatus === 'PENDING' && (
+                              <div className="flex flex-col gap-2 w-full">
+                                  <div className="rounded-xl bg-yellow-50 p-3 text-center text-sm font-medium text-yellow-700">
+                                      <Clock className="mx-auto mb-1 h-5 w-5" />
+                                      Waiting for Payment
+                                  </div>
+                                  {job.paymentMode === 'CASH' && (
+                                      <button
+                                          onClick={() => handlePaymentConfirm(job._id)}
+                                          className="flex items-center justify-center gap-2 rounded-xl bg-green-600 py-3 font-bold text-white shadow-lg shadow-green-600/20 transition-all hover:bg-green-700"
+                                      >
+                                          <CheckCircle className="h-5 w-5" /> Confirm Cash Payment
+                                      </button>
+                                  )}
+                              </div>
+                          )}
+                          
+                          {/* Chat Button */}
+                          {['Accepted', 'OnTheWay', 'InProgress'].includes(job.status) && (
+                            <button
+                                onClick={() => setActiveChatBookingId(job._id)}
+                                className="flex items-center justify-center gap-2 rounded-xl bg-gray-100 py-3 font-bold text-gray-700 transition-all hover:bg-gray-200"
+                            >
+                                <MessageSquare className="h-5 w-5" /> Chat with Customer
+                            </button>
+                          )}
+                          
                           {job.status === 'Completed' && (
                              <div className="rounded-xl bg-green-50 p-4 text-center text-green-700">
                                 <CheckCircle className="mx-auto mb-2 h-8 w-8" />
@@ -364,7 +409,18 @@ export default function AgentDashboard() {
           </div>
         )}
 
-        {/* Completion Modal */}
+        {/* Chat Modal */}
+      {activeChatBookingId && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
+          <ChatWindow 
+            bookingId={activeChatBookingId} 
+            onClose={() => setActiveChatBookingId(null)} 
+            socket={socket} 
+          />
+        </div>
+      )}
+
+      {/* Completion Modal */}
         {completionModalOpen && (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
                 <div className="w-full max-w-md rounded-3xl bg-white p-6 shadow-2xl">
@@ -376,48 +432,30 @@ export default function AgentDashboard() {
                     </div>
                     
                     <form onSubmit={handleCompleteSubmit} className="space-y-4">
-                        <div>
-                            <label className="mb-1 block text-sm font-medium text-gray-700">Labor Charge (₹)</label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                                <input
-                                    type="number"
-                                    name="laborCharge"
-                                    value={completionData.laborCharge}
-                                    onChange={handleCompletionChange}
-                                    required
-                                    className="block w-full rounded-xl border-gray-200 bg-gray-50 p-3 pl-10 text-gray-900 focus:border-primary focus:ring-primary"
-                                    placeholder="0.00"
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-sm font-medium text-gray-700">Parts/Material Cost (₹)</label>
-                            <div className="relative">
-                                <DollarSign className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                                <input
-                                    type="number"
-                                    name="partsCharge"
-                                    value={completionData.partsCharge}
-                                    onChange={handleCompletionChange}
-                                    className="block w-full rounded-xl border-gray-200 bg-gray-50 p-3 pl-10 text-gray-900 focus:border-primary focus:ring-primary"
-                                    placeholder="0.00"
-                                />
-                            </div>
-                        </div>
-                        <div>
-                            <label className="mb-1 block text-sm font-medium text-gray-700">Warranty (Days)</label>
-                            <div className="relative">
-                                <Shield className="absolute left-3 top-3 h-5 w-5 text-gray-400" />
-                                <input
-                                    type="number"
-                                    name="warrantyDays"
-                                    value={completionData.warrantyDays}
-                                    onChange={handleCompletionChange}
-                                    className="block w-full rounded-xl border-gray-200 bg-gray-50 p-3 pl-10 text-gray-900 focus:border-primary focus:ring-primary"
-                                />
-                            </div>
-                        </div>
+                        <InputWithIcon
+                            label="Labor Charge (₹)"
+                            icon={IndianRupee}
+                            name="laborCharge"
+                            value={completionData.laborCharge}
+                            onChange={handleCompletionChange}
+                            placeholder="0.00"
+                            required
+                        />
+                        <InputWithIcon
+                            label="Parts/Material Cost (₹)"
+                            icon={IndianRupee}
+                            name="partsCharge"
+                            value={completionData.partsCharge}
+                            onChange={handleCompletionChange}
+                            placeholder="0.00"
+                        />
+                        <InputWithIcon
+                            label="Warranty (Days)"
+                            icon={Shield}
+                            name="warrantyDays"
+                            value={completionData.warrantyDays}
+                            onChange={handleCompletionChange}
+                        />
                         <div>
                             <label className="mb-1 block text-sm font-medium text-gray-700">Notes</label>
                             <textarea
@@ -441,6 +479,23 @@ export default function AgentDashboard() {
             </div>
         )}
       </main>
+    </div>
+  );
+}
+
+function InputWithIcon({ label, icon: Icon, ...props }) {
+  return (
+    <div>
+      <label className="mb-1 block text-sm font-medium text-gray-700">{label}</label>
+      <div className="relative">
+        <Icon className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-gray-400" />
+        <input
+          type="number"
+          className="block w-full rounded-xl border-gray-200 bg-gray-50 p-3 text-gray-900 focus:border-primary focus:ring-primary"
+          style={{ paddingLeft: '3.5rem' }}
+          {...props}
+        />
+      </div>
     </div>
   );
 }

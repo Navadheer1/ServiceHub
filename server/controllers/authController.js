@@ -29,6 +29,9 @@ const registerUser = async (req, res) => {
       name: user.name,
       email: user.email,
       role: 'user',
+      phone: user.phone,
+      address: user.address,
+      location: user.location,
       token: generateToken(user._id, 'user'),
     });
   } else {
@@ -61,13 +64,32 @@ const loginUser = async (req, res) => {
 // @route   POST /api/auth/agent/register
 // @access  Public
 const registerAgent = async (req, res) => {
-  const { name, email, password, phone, skills, location, experience, specialization } = req.body;
+  const { 
+    name, 
+    email, 
+    password, 
+    phone, 
+    skills, 
+    location, 
+    experience, 
+    specialization, // Legacy frontend field, maps to serviceType
+    serviceType,    // New field
+    isEmergencyAvailable 
+  } = req.body;
 
   const agentExists = await Agent.findOne({ email });
 
   if (agentExists) {
     return res.status(400).json({ message: 'Agent already exists' });
   }
+
+  // Map specialization to serviceType if not provided
+  const finalServiceType = serviceType || specialization || 'Electrician';
+  
+  // Determine role based on serviceType
+  let role = 'agent'; // Default fallback
+  if (finalServiceType === 'Electrician') role = 'electrician';
+  if (finalServiceType === 'Mechanic') role = 'mechanic';
 
   const agent = await Agent.create({
     name,
@@ -77,7 +99,10 @@ const registerAgent = async (req, res) => {
     skills,
     location,
     experience,
-    specialization: specialization || 'Electrician'
+    specialization: finalServiceType, // Keep for backward compatibility
+    serviceType: finalServiceType,
+    role, // Explicit role: 'electrician' or 'mechanic'
+    isEmergencyAvailable: isEmergencyAvailable || false
   });
 
   if (agent) {
@@ -85,8 +110,10 @@ const registerAgent = async (req, res) => {
       _id: agent._id,
       name: agent.name,
       email: agent.email,
-      role: 'agent',
-      token: generateToken(agent._id, 'agent'),
+      role: agent.role,
+      serviceType: agent.serviceType,
+      isEmergencyAvailable: agent.isEmergencyAvailable,
+      token: generateToken(agent._id, agent.role),
     });
   } else {
     res.status(400).json({ message: 'Invalid agent data' });
@@ -102,16 +129,21 @@ const loginAgent = async (req, res) => {
   const agent = await Agent.findOne({ email });
 
   if (agent && (await agent.matchPassword(password))) {
+    // Ensure role is up to date in response if using old data
+    const role = agent.role || 'agent';
+    
     res.json({
       _id: agent._id,
       name: agent.name,
       email: agent.email,
-      role: 'agent',
+      role: role,
+      serviceType: agent.serviceType || agent.specialization || 'Electrician',
       specialization: agent.specialization,
+      isEmergencyAvailable: agent.isEmergencyAvailable,
       reliability: agent.reliability,
       earnings: agent.earnings,
       rating: agent.rating,
-      token: generateToken(agent._id, 'agent'),
+      token: generateToken(agent._id, role, agent.serviceType),
     });
   } else {
     res.status(401).json({ message: 'Invalid email or password' });
@@ -152,9 +184,25 @@ const toggleFavorite = async (req, res) => {
 // @access  Private
 const getFavorites = async (req, res) => {
   try {
+    // If user is an agent, they don't have favorites
+    if (['agent', 'electrician', 'mechanic'].includes(req.user.role)) {
+        return res.json([]);
+    }
+
     const user = await User.findById(req.user._id).populate('favoriteAgents', 'name phone specialization rating reliability');
+    
+    if (!user) {
+        return res.status(404).json({ message: 'User not found' });
+    }
+
+    // Ensure favoriteAgents is initialized
+    if (!user.favoriteAgents) {
+        return res.json([]);
+    }
+
     res.json(user.favoriteAgents);
   } catch (error) {
+    console.error('Get Favorites Error:', error);
     res.status(500).json({ message: error.message });
   }
 };

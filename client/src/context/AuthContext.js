@@ -21,11 +21,12 @@ export const AuthProvider = ({ children }) => {
 
   const login = async (email, password, role) => {
     try {
-      const endpoint = role === 'agent' ? '/auth/agent/login' : '/auth/user/login';
+      const isAgent = ['agent', 'electrician', 'mechanic'].includes(role);
+      const endpoint = isAgent ? '/auth/agent/login' : '/auth/user/login';
       const { data } = await api.post(endpoint, { email, password });
       localStorage.setItem('user', JSON.stringify(data));
       setUser(data);
-      if (role === 'agent') router.push('/dashboard/agent');
+      if (isAgent) router.push('/dashboard/agent');
       else router.push('/dashboard/user');
       return { success: true };
     } catch (error) {
@@ -35,11 +36,12 @@ export const AuthProvider = ({ children }) => {
 
   const register = async (userData, role) => {
     try {
-      const endpoint = role === 'agent' ? '/auth/agent/register' : '/auth/user/register';
+      const isAgent = ['agent', 'electrician', 'mechanic'].includes(role);
+      const endpoint = isAgent ? '/auth/agent/register' : '/auth/user/register';
       const { data } = await api.post(endpoint, userData);
       localStorage.setItem('user', JSON.stringify(data));
       setUser(data);
-      if (role === 'agent') router.push('/dashboard/agent');
+      if (isAgent) router.push('/dashboard/agent');
       else router.push('/dashboard/user');
       return { success: true };
     } catch (error) {

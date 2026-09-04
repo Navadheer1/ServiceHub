@@ -7,6 +7,8 @@ const serviceRequestSchema = new mongoose.Schema({
   description: { type: String, required: true },
   media: [{ type: String }], // URLs for images/videos
   serviceType: { type: String, enum: ['Home', 'Pickup', 'Roadside'], default: 'Home' },
+  agentType: { type: String, enum: ['Electrician', 'Mechanic'], default: 'Electrician', required: true },
+  isEmergency: { type: Boolean, default: false },
   bookingMode: { type: String, enum: ['Emergency', 'Scheduled'], default: 'Scheduled' },
   vehicleDetails: {
     type: { type: String }, // Bike, Car
@@ -33,6 +35,21 @@ const serviceRequestSchema = new mongoose.Schema({
     partsCharge: { type: Number },
     emergencySurcharge: { type: Number },
     finalAmount: { type: Number }
+  },
+  invoiceStatus: {
+    type: String,
+    enum: ['NOT_GENERATED', 'GENERATED', 'PAID'],
+    default: 'NOT_GENERATED'
+  },
+  paymentStatus: {
+    type: String,
+    enum: ['PENDING', 'PAID', 'FAILED'],
+    default: 'PENDING'
+  },
+  paymentMode: {
+    type: String,
+    enum: ['CASH', 'ONLINE'],
+    default: null
   },
   warranty: {
     periodDays: { type: Number, default: 0 },

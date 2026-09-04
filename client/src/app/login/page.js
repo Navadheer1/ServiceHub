@@ -36,7 +36,9 @@ export default function LoginPage() {
               className="mt-1 block w-full rounded-md border border-gray-300 bg-white p-2 text-black shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500"
             >
               <option value="user">User</option>
-              <option value="agent">Service Agent</option>
+              <option value="electrician">Electrician</option>
+              <option value="mechanic">Mechanic</option>
+              <option value="agent">Service Agent (Legacy)</option>
             </select>
           </div>
           <div>
